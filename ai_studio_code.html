@@ -1,0 +1,625 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>EtherSynth Pro | 音樂遊戲合成器</title>
+    <style>
+        :root {
+            --bg-dark: #0a0c10;
+            --panel-bg: rgba(15, 23, 42, 0.98);
+            --primary: #00f2ff;
+            --primary-glow: rgba(0, 242, 255, 0.5);
+            --accent: #ff007b;
+            --success: #10b981;
+            --text: #e2e8f0;
+            --border: rgba(255, 255, 255, 0.1);
+            --panel-height: 280px; 
+        }
+
+        body, html {
+            margin: 0; padding: 0;
+            width: 100%; height: 100%;
+            overflow: hidden;
+            background-color: var(--bg-dark);
+            font-family: 'PingFang TC', 'Microsoft JhengHei', sans-serif;
+            color: var(--text);
+            display: flex;
+            flex-direction: column;
+        }
+
+        /* 畫布視覺區 */
+        #visualizer-section {
+            position: relative;
+            flex: 1;
+            background: radial-gradient(circle at center, #1e293b 0%, #0a0c10 100%);
+            cursor: crosshair;
+            min-height: 100px;
+        }
+
+        canvas { display: block; width: 100%; height: 100%; }
+
+        /* 遊戲判定文字 */
+        #game-feedback {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            font-size: 5rem;
+            font-weight: 900;
+            pointer-events: none;
+            z-index: 100;
+            opacity: 0;
+        }
+
+        .feedback-perfect { color: var(--primary); text-shadow: 0 0 30px var(--primary); animation: popOut 0.5s ease-out; }
+        .feedback-miss { color: var(--accent); text-shadow: 0 0 30px var(--accent); animation: popOut 0.5s ease-out; }
+
+        @keyframes popOut {
+            0% { opacity: 0; transform: translate(-50%, -50%) scale(0.5); }
+            50% { opacity: 1; transform: translate(-50%, -50%) scale(1.2); }
+            100% { opacity: 0; transform: translate(-50%, -50%) scale(1.5); }
+        }
+
+        /* UI 文字資訊看板 */
+        .overlay-info {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            pointer-events: none;
+            background: rgba(0,0,0,0.7);
+            padding: 20px;
+            border-radius: 12px;
+            border-left: 5px solid var(--primary);
+            min-width: 250px;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.5);
+            backdrop-filter: blur(10px);
+        }
+
+        .stat-line { display: flex; justify-content: space-between; margin-bottom: 8px; font-size: 0.85rem; letter-spacing: 1px; }
+        .stat-line span { color: var(--primary); font-weight: bold; }
+        
+        /* 遊戲目標框 */
+        .game-target-box {
+            margin-top: 15px;
+            padding: 15px;
+            background: rgba(255,255,255,0.05);
+            border-radius: 8px;
+            border: 1px solid var(--border);
+            text-align: center;
+        }
+
+        .target-label { font-size: 0.7rem; color: #94a3b8; margin-bottom: 5px; display: block; letter-spacing: 2px; }
+        .target-value { font-size: 1.8rem; font-weight: 900; color: var(--accent); text-shadow: 0 0 15px var(--accent); }
+        
+        /* 計時條 */
+        .timer-bar-container { width: 100%; height: 5px; background: #334155; margin-top: 12px; border-radius: 10px; overflow: hidden; }
+        #timer-bar { width: 100%; height: 100%; background: var(--success); transition: width 0.1s linear; }
+
+        .score-display { font-size: 1.5rem; color: var(--success) !important; }
+
+        /* 可伸縮調整槓 */
+        #resize-handle {
+            height: 6px;
+            background: #1e293b;
+            cursor: ns-resize;
+            border-top: 1px solid var(--border);
+            border-bottom: 1px solid var(--primary);
+            z-index: 20;
+        }
+        #resize-handle:hover { background: var(--primary); }
+
+        /* 底部控制面板 */
+        #footer-panel {
+            height: var(--panel-height);
+            background: var(--panel-bg);
+            backdrop-filter: blur(20px);
+            padding: 15px 25px;
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+            gap: 20px;
+            overflow-y: auto;
+        }
+
+        .control-group { border: 1px solid var(--border); padding: 15px; border-radius: 10px; background: rgba(0,0,0,0.2); }
+        .control-group h3 { margin: 0 0 12px 0; font-size: 0.75rem; color: var(--primary); letter-spacing: 2px; text-transform: uppercase; border-bottom: 1px solid var(--border); padding-bottom: 5px; }
+
+        button { background: #1e293b; color: white; border: 1px solid #475569; padding: 10px 15px; border-radius: 6px; cursor: pointer; transition: all 0.2s; font-size: 0.8rem; }
+        button:hover { border-color: var(--primary); }
+        button.active { background: var(--primary); color: #000; font-weight: bold; border-color: var(--primary); }
+        button.game-active { background: var(--accent); border-color: var(--accent); box-shadow: 0 0 20px rgba(255, 0, 123, 0.4); }
+
+        input[type=range] { width: 100%; height: 4px; accent-color: var(--primary); cursor: pointer; }
+
+        select { background: #1e293b; color: white; border: 1px solid #475569; padding: 5px; border-radius: 4px; }
+
+        /* 啟動畫面 */
+        #splash { position: fixed; inset: 0; background: var(--bg-dark); display: flex; flex-direction: column; justify-content: center; align-items: center; z-index: 1000; }
+        #start-btn { padding: 25px 80px; font-size: 1.6rem; border-radius: 50px; background: var(--primary); color: #000; font-weight: 900; cursor: pointer; border: none; box-shadow: 0 0 50px var(--primary-glow); transition: transform 0.2s; }
+        #start-btn:hover { transform: scale(1.05); }
+
+        .keyboard-guide { margin-top: 30px; font-size: 0.85rem; color: #64748b; text-align: center; line-height: 1.8; background: rgba(255,255,255,0.03); padding: 20px; border-radius: 15px; }
+        kbd { background: #334155; padding: 3px 8px; border-radius: 5px; color: white; font-family: monospace; border-bottom: 2px solid #000; margin: 0 2px; }
+        
+        .hidden { display: none !important; }
+    </style>
+</head>
+<body>
+
+    <div id="splash">
+        <h1 style="color:var(--primary); letter-spacing: 10px; margin-bottom: 10px;">ETHERSYNTH PRO</h1>
+        <h2 style="color:var(--accent); font-size: 1.2rem; margin-bottom: 40px; letter-spacing: 5px;">大師級音樂挑戰</h2>
+        <button id="start-btn">啟動系統</button>
+        <div class="keyboard-guide">
+            <kbd>A</kbd> - <kbd>L</kbd> 白鍵 | <kbd>W</kbd> - <kbd>P</kbd> 黑鍵<br>
+            <kbd>Z</kbd> / <kbd>X</kbd> 切換八度 | <kbd>[</kbd> / <kbd>]</kbd> 快速轉調<br>
+            <kbd>空白鍵</kbd> 切換 鍵盤/特雷門模式
+        </div>
+    </div>
+
+    <section id="visualizer-section">
+        <!-- 判定文字特效 -->
+        <div id="game-feedback">PERFECT</div>
+
+        <div class="overlay-info">
+            <div class="stat-line">演奏模式: <span id="ui-mode">特雷門琴</span></div>
+            <div class="stat-line">目前分數: <span id="ui-score" class="score-display">0</span></div>
+            <div class="stat-line">連擊次數: <span id="ui-combo">0</span></div>
+            <div class="stat-line">目前難度: <span id="ui-level">1</span></div>
+            
+            <div class="game-target-box" id="game-target-ui">
+                <span class="target-label">挑戰目標</span>
+                <div class="target-value" id="ui-target-val">---</div>
+                <div class="timer-bar-container">
+                    <div id="timer-bar"></div>
+                </div>
+            </div>
+
+            <div class="stat-line" style="margin-top: 15px; opacity: 0.6; font-size: 0.75rem;">目前音符: <span id="ui-note">--</span></div>
+            <div class="stat-line" style="opacity: 0.6; font-size: 0.75rem;">辨識和弦: <span id="ui-chord">--</span></div>
+        </div>
+        <canvas id="main-canvas"></canvas>
+    </section>
+
+    <div id="resize-handle"></div>
+
+    <footer id="footer-panel">
+        <div class="control-group">
+            <h3>遊戲管理員</h3>
+            <button id="game-mode-toggle" style="width: 100%; height: 50px; font-weight: bold; margin-bottom: 10px; font-size: 1rem;">開啟遊戲模式</button>
+            <div class="stat-line">目前調性: <span id="ui-root-hint">C</span></div>
+            <div class="stat-line">目前音階: <span id="ui-scale-hint">半音階</span></div>
+        </div>
+
+        <div class="control-group">
+            <h3>合成器引擎</h3>
+            <div class="stat-line">操作模式 <button id="mode-toggle">特雷門琴</button></div>
+            <div class="stat-line">設定根音 
+                <select id="root-select">
+                    <option value="0">C</option><option value="1">C#</option><option value="2">D</option>
+                    <option value="4">E</option><option value="5">F</option><option value="7">G</option>
+                    <option value="9">A</option><option value="11">B</option>
+                </select>
+            </div>
+            <div class="stat-line">自動吸附音階
+                <select id="scale-type">
+                    <option value="chromatic">半音階</option>
+                    <option value="major">大調音階</option>
+                    <option value="minor">小調音階</option>
+                    <option value="pentatonic">五聲音階</option>
+                </select>
+            </div>
+            <div class="stat-line">波形
+                <select id="osc-type">
+                    <option value="sine">正弦波</option><option value="triangle">三角波</option>
+                    <option value="sawtooth">鋸齒波</option><option value="square">方波</option>
+                </select>
+            </div>
+        </div>
+
+        <div class="control-group">
+            <h3>增益包絡線 (ADSR)</h3>
+            <div class="stat-line">起始 (Attack): <span id="v-attack">0.05</span>s</div>
+            <input type="range" id="adsr-a" min="0.01" max="1" step="0.01" value="0.05">
+            <div class="stat-line">釋放 (Release): <span id="v-release">0.4</span>s</div>
+            <input type="range" id="adsr-r" min="0.01" max="2" step="0.01" value="0.4">
+            <div style="margin-top:10px; font-size:0.7rem; color:#64748b;">調整聲音的啟動與尾韻。</div>
+        </div>
+
+        <div class="control-group" style="display: flex; flex-direction: column; justify-content: center; gap: 10px;">
+            <button id="rec-btn" style="font-weight: bold; font-size: 1rem;">● 開始錄音</button>
+            <button id="download-btn" class="hidden" style="background: var(--success); color:#000;">儲存錄音 (.WAV)</button>
+            <div class="stat-line" style="font-size:0.7rem; color:#64748b;">拖動上方邊界可調整面板高度。</div>
+        </div>
+    </footer>
+
+    <script>
+        /**
+         * ETHERSYNTH PRO - MASTER CHINESE VERSION
+         */
+
+        const NOTES_BASE = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
+        const CHORD_PATTERNS = {
+            "大三和弦": [0, 4, 7], "小三和弦": [0, 3, 7], "大七和弦": [0, 4, 7, 11], 
+            "小七和弦": [0, 3, 7, 10], "掛四和弦": [0, 5, 7], "強力音程": [0, 7]
+        };
+        const SCALES = {
+            chromatic: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11],
+            major: [0, 2, 4, 5, 7, 9, 11],
+            minor: [0, 2, 3, 5, 7, 8, 10],
+            pentatonic: [0, 2, 4, 7, 9]
+        };
+        const SCALE_NAMES = {
+            chromatic: "半音階", major: "大調音階", minor: "小調音階", pentatonic: "五聲音階"
+        };
+        const KEY_MAP = { 'a':0, 'w':1, 's':2, 'e':3, 'd':4, 'f':5, 't':6, 'g':7, 'y':8, 'h':9, 'u':10, 'j':11, 'k':12 };
+
+        // --- 核心引擎 ---
+        class AudioEngine {
+            constructor() {
+                this.ctx = new (window.AudioContext || window.webkitAudioContext)();
+                this.masterGain = this.ctx.createGain();
+                this.masterGain.connect(this.ctx.destination);
+                this.filter = this.ctx.createBiquadFilter();
+                this.filter.type = 'lowpass';
+                this.filter.frequency.value = 5000;
+                this.analyser = this.ctx.createAnalyser();
+                this.analyser.fftSize = 1024;
+                this.filter.connect(this.analyser);
+                this.analyser.connect(this.masterGain);
+
+                this.activeOscs = {}; 
+                this.currentMidiNotes = new Set(); 
+                this.adsr = { attack: 0.05, decay: 0.1, sustain: 0.7, release: 0.4 };
+                this.settings = { type: 'sine', scale: 'chromatic', root: 0, isTheremin: true };
+
+                this.dest = this.ctx.createMediaStreamDestination();
+                this.masterGain.connect(this.dest);
+                this.recorder = new MediaRecorder(this.dest.stream);
+                this.chunks = [];
+            }
+
+            playNote(freq, id, midiNum) {
+                if (this.activeOscs[id]) this.stopNote(id, this.activeOscs[id].midiNum);
+                const osc = this.ctx.createOscillator();
+                const vca = this.ctx.createGain(); 
+                osc.type = this.settings.type;
+                osc.frequency.setValueAtTime(freq, this.ctx.currentTime);
+                vca.gain.setValueAtTime(0, this.ctx.currentTime);
+                vca.gain.linearRampToValueAtTime(0.4, this.ctx.currentTime + this.adsr.attack);
+                vca.gain.exponentialRampToValueAtTime(this.adsr.sustain * 0.4 + 0.001, this.ctx.currentTime + this.adsr.attack + this.adsr.decay);
+                osc.connect(vca);
+                vca.connect(this.filter);
+                osc.start();
+                this.activeOscs[id] = { osc, vca, midiNum };
+                if (midiNum !== undefined) this.currentMidiNotes.add(midiNum);
+                if (gameDirector && gameDirector.active) gameDirector.checkInput();
+            }
+
+            stopNote(id, midiNum) {
+                const voice = this.activeOscs[id];
+                if (voice) {
+                    const now = this.ctx.currentTime;
+                    voice.vca.gain.cancelScheduledValues(now);
+                    voice.vca.gain.setValueAtTime(voice.vca.gain.value, now);
+                    voice.vca.gain.exponentialRampToValueAtTime(0.001, now + this.adsr.release);
+                    voice.osc.stop(now + this.adsr.release + 0.05);
+                    delete this.activeOscs[id];
+                }
+                if (midiNum !== undefined) this.currentMidiNotes.delete(midiNum);
+                if (gameDirector && gameDirector.active) gameDirector.checkInput();
+            }
+
+            snapToScale(freq) {
+                let midi = 12 * Math.log2(freq / 440) + 69;
+                let note = Math.round(midi) % 12;
+                let octave = Math.floor(Math.round(midi) / 12);
+                let relativeNote = (note - this.settings.root + 12) % 12;
+                let allowed = SCALES[this.settings.scale];
+                let closestRelative = allowed.reduce((prev, curr) => Math.abs(curr - relativeNote) < Math.abs(prev - relativeNote) ? curr : prev);
+                let snappedMidi = octave * 12 + ((closestRelative + this.settings.root) % 12);
+                return 440 * Math.pow(2, (snappedMidi - 69) / 12);
+            }
+        }
+
+        // --- 遊戲系統 ---
+        class GameDirector {
+            constructor(engine) {
+                this.engine = engine;
+                this.active = false;
+                this.score = 0;
+                this.combo = 0;
+                this.level = 1;
+                this.currentTarget = null;
+                this.timer = 0;
+                this.maxTime = 8000;
+                this.lastUpdate = 0;
+            }
+
+            toggle() {
+                this.active = !this.active;
+                const btn = document.getElementById('game-mode-toggle');
+                if (this.active) {
+                    btn.innerText = "停止遊戲模式";
+                    btn.classList.add('game-active');
+                    this.reset();
+                    this.nextTask();
+                    this.loop();
+                } else {
+                    btn.innerText = "開啟遊戲模式";
+                    btn.classList.remove('game-active');
+                    document.getElementById('ui-target-val').innerText = "---";
+                }
+            }
+
+            reset() { this.score = 0; this.combo = 0; this.level = 1; this.updateUI(); }
+
+            nextTask() {
+                const useChord = this.level >= 3 && Math.random() > 0.4;
+                const allowedNotes = SCALES[this.engine.settings.scale];
+                const root = this.engine.settings.root;
+
+                if (!useChord) {
+                    const randNoteIndex = allowedNotes[Math.floor(Math.random() * allowedNotes.length)];
+                    const midi = 60 + root + randNoteIndex;
+                    this.currentTarget = { type: 'note', value: [midi], name: NOTES_BASE[midi % 12] };
+                } else {
+                    const chordKeys = Object.keys(CHORD_PATTERNS);
+                    const randChordName = chordKeys[Math.floor(Math.random() * chordKeys.length)];
+                    const pattern = CHORD_PATTERNS[randChordName];
+                    const randRoot = allowedNotes[Math.floor(Math.random() * allowedNotes.length)];
+                    const absoluteNotes = pattern.map(p => (randRoot + p) % 12);
+                    this.currentTarget = { type: 'chord', value: absoluteNotes, name: NOTES_BASE[randRoot % 12] + " " + randChordName };
+                }
+
+                document.getElementById('ui-target-val').innerText = this.currentTarget.name;
+                this.maxTime = Math.max(3000, 8000 - (this.level * 500));
+                this.timer = this.maxTime;
+                this.lastUpdate = performance.now();
+            }
+
+            checkInput() {
+                if (!this.active || !this.currentTarget) return;
+                const playerNotes = Array.from(this.engine.currentMidiNotes);
+                let isCorrect = false;
+
+                if (this.currentTarget.type === 'note') {
+                    isCorrect = playerNotes.some(m => (m % 12) === (this.currentTarget.value[0] % 12));
+                } else {
+                    const playerSet = new Set(playerNotes.map(m => m % 12));
+                    isCorrect = this.currentTarget.value.every(v => playerSet.has(v));
+                }
+                if (isCorrect) this.success();
+            }
+
+            success() {
+                const bonus = Math.floor((this.timer / this.maxTime) * 100);
+                this.combo++;
+                this.score += (100 + bonus) * Math.min(this.combo, 5);
+                this.level = Math.floor(this.score / 1000) + 1;
+                this.showFeedback("完美！", "feedback-perfect");
+                this.updateUI();
+                this.nextTask();
+            }
+
+            fail() {
+                this.combo = 0;
+                this.showFeedback("失誤...", "feedback-miss");
+                this.updateUI();
+                this.nextTask();
+            }
+
+            loop() {
+                if (!this.active) return;
+                const now = performance.now();
+                const delta = now - this.lastUpdate;
+                this.lastUpdate = now;
+                this.timer -= delta;
+                const percent = (this.timer / this.maxTime) * 100;
+                document.getElementById('timer-bar').style.width = percent + "%";
+                if (this.timer <= 0) this.fail();
+                requestAnimationFrame(() => this.loop());
+            }
+
+            updateUI() {
+                document.getElementById('ui-score').innerText = this.score;
+                document.getElementById('ui-combo').innerText = this.combo;
+                document.getElementById('ui-level').innerText = this.level;
+            }
+
+            showFeedback(text, className) {
+                const el = document.getElementById('game-feedback');
+                el.innerText = text; el.className = className;
+                el.style.animation = 'none'; el.offsetHeight; el.style.animation = null;
+            }
+        }
+
+        // --- 視覺化 ---
+        class Visualizer {
+            constructor(canvas, engine) {
+                this.canvas = canvas; this.ctx = canvas.getContext('2d'); this.engine = engine;
+                this.freqData = new Uint8Array(engine.analyser.frequencyBinCount);
+            }
+            render() {
+                const { width, height } = this.canvas;
+                this.engine.analyser.getByteFrequencyData(this.freqData);
+                this.ctx.fillStyle = 'rgba(10, 12, 16, 0.2)';
+                this.ctx.fillRect(0, 0, width, height);
+                const barWidth = (width / this.freqData.length) * 2.5;
+                for (let i = 0; i < this.freqData.length; i++) {
+                    const barHeight = (this.freqData[i] / 255) * height * 0.6;
+                    this.ctx.fillStyle = this.engine.settings.isTheremin ? `hsla(${180+i}, 70%, 50%, 0.4)` : `hsla(${330+i}, 70%, 50%, 0.4)`;
+                    this.ctx.fillRect(i * barWidth, height - barHeight, barWidth - 1, barHeight);
+                }
+                requestAnimationFrame(() => this.render());
+            }
+        }
+
+        // --- 初始化與事件 ---
+        let engine, visualizer, gameDirector, currentOctave = 4, isMouseDown = false;
+
+        function init() {
+            engine = new AudioEngine();
+            visualizer = new Visualizer(document.getElementById('main-canvas'), engine);
+            gameDirector = new GameDirector(engine);
+            
+            window.addEventListener('resize', () => {
+                visualizer.canvas.width = window.innerWidth;
+                visualizer.canvas.height = document.getElementById('visualizer-section').offsetHeight;
+            });
+            window.dispatchEvent(new Event('resize'));
+            visualizer.render();
+            setupInputs(); setupUI(); setupResizablePanel();
+        }
+
+        function setupInputs() {
+            const viz = document.getElementById('visualizer-section');
+            viz.addEventListener('pointerdown', (e) => {
+                if (!engine.settings.isTheremin) return;
+                isMouseDown = true; handlePointer(e, true);
+            });
+            window.addEventListener('pointermove', (e) => { if (isMouseDown && engine.settings.isTheremin) handlePointer(e); });
+            window.addEventListener('pointerup', () => { if (isMouseDown) { isMouseDown = false; engine.stopNote('mouse'); } });
+
+            window.addEventListener('keydown', (e) => {
+                const key = e.key.toLowerCase();
+                if (key === '[') { shiftRoot(-1); return; }
+                if (key === ']') { shiftRoot(1); return; }
+                if (e.code === 'Space') { e.preventDefault(); toggleEngineMode(); return; }
+                if (key === 'z') { currentOctave = Math.max(0, currentOctave - 1); return; }
+                if (key === 'x') { currentOctave = Math.min(8, currentOctave + 1); return; }
+
+                if (KEY_MAP[key] !== undefined && !engine.settings.isTheremin) {
+                    if (engine.activeOscs[key]) return;
+                    const midi = 12 * (currentOctave + 1) + KEY_MAP[key] + engine.settings.root;
+                    const freq = 440 * Math.pow(2, (midi - 69) / 12);
+                    engine.playNote(freq, key, midi);
+                    updateStatsUI(freq);
+                }
+            });
+
+            window.addEventListener('keyup', (e) => {
+                const key = e.key.toLowerCase();
+                if (KEY_MAP[key] !== undefined) {
+                    const midi = 12 * (currentOctave + 1) + KEY_MAP[key] + engine.settings.root;
+                    engine.stopNote(key, midi);
+                }
+            });
+        }
+
+        function handlePointer(e, firstHit = false) {
+            const rect = document.getElementById('visualizer-section').getBoundingClientRect();
+            const x = (e.clientX - rect.left) / rect.width;
+            const y = (e.clientY - rect.top) / rect.height;
+            let freq = engine.snapToScale(40 * Math.pow(4000 / 40, x));
+            engine.filter.frequency.setTargetAtTime(15000 * (1 - y) + 50, engine.ctx.currentTime, 0.05);
+            const midi = Math.round(12 * Math.log2(freq / 440) + 69);
+            if (firstHit) engine.playNote(freq, 'mouse', midi);
+            else if (engine.activeOscs['mouse']) {
+                engine.activeOscs['mouse'].osc.frequency.setTargetAtTime(freq, engine.ctx.currentTime, 0.03);
+                engine.activeOscs['mouse'].midiNum = midi;
+                if (gameDirector.active) gameDirector.checkInput();
+            }
+            updateStatsUI(freq);
+        }
+
+        function toggleEngineMode() {
+            engine.settings.isTheremin = !engine.settings.isTheremin;
+            const modeName = engine.settings.isTheremin ? "特雷門琴" : "鍵盤模式";
+            document.getElementById('ui-mode').innerText = modeName;
+            document.getElementById('mode-toggle').innerText = modeName;
+            document.getElementById('mode-toggle').className = engine.settings.isTheremin ? "" : "active";
+        }
+
+        function shiftRoot(dir) {
+            engine.settings.root = (engine.settings.root + dir + 12) % 12;
+            document.getElementById('root-select').value = engine.settings.root;
+            document.getElementById('ui-root-hint').innerText = NOTES_BASE[engine.settings.root];
+        }
+
+        function setupUI() {
+            document.getElementById('game-mode-toggle').addEventListener('click', () => gameDirector.toggle());
+            document.getElementById('root-select').addEventListener('change', (e) => {
+                engine.settings.root = parseInt(e.target.value);
+                document.getElementById('ui-root-hint').innerText = NOTES_BASE[engine.settings.root];
+            });
+            document.getElementById('scale-type').addEventListener('change', (e) => {
+                engine.settings.scale = e.target.value;
+                document.getElementById('ui-scale-hint').innerText = SCALE_NAMES[e.target.value];
+            });
+            const bind = (id, obj, prop, uiId) => {
+                document.getElementById(id).addEventListener('input', (e) => {
+                    const val = parseFloat(e.target.value); obj[prop] = val;
+                    document.getElementById(uiId).innerText = val;
+                });
+            };
+            bind('adsr-a', engine.adsr, 'attack', 'v-attack');
+            bind('adsr-r', engine.adsr, 'release', 'v-release');
+            document.getElementById('osc-type').addEventListener('change', (e) => engine.settings.type = e.target.value);
+            document.getElementById('mode-toggle').addEventListener('click', toggleEngineMode);
+            
+            const recBtn = document.getElementById('rec-btn');
+            recBtn.addEventListener('click', (e) => {
+                if (engine.recorder.state === 'inactive') {
+                    engine.chunks = []; engine.recorder.start();
+                    e.target.innerText = "■ 停止並儲存"; e.target.style.background = "#ff007b";
+                } else {
+                    engine.recorder.stop();
+                    e.target.innerText = "● 開始錄音"; e.target.style.background = "";
+                }
+            });
+
+            engine.recorder.onstop = () => {
+                const blob = new Blob(engine.chunks, { type: 'audio/wav' });
+                const btn = document.getElementById('download-btn');
+                btn.classList.remove('hidden');
+                btn.onclick = () => {
+                    const a = document.createElement('a'); a.href = URL.createObjectURL(blob);
+                    a.download = '演奏紀錄.wav'; a.click();
+                };
+            };
+            engine.recorder.ondataavailable = (e) => engine.chunks.push(e.data);
+        }
+
+        function setupResizablePanel() {
+            const handle = document.getElementById('resize-handle');
+            const footer = document.getElementById('footer-panel');
+            let isDragging = false;
+            handle.addEventListener('pointerdown', (e) => { isDragging = true; handle.releasePointerCapture(e.pointerId); });
+            window.addEventListener('pointermove', (e) => {
+                if (!isDragging) return;
+                const newHeight = window.innerHeight - e.clientY;
+                if (newHeight > 100 && newHeight < window.innerHeight * 0.8) {
+                    footer.style.height = newHeight + "px";
+                    window.dispatchEvent(new Event('resize'));
+                }
+            });
+            window.addEventListener('pointerup', () => isDragging = false);
+        }
+
+        function updateStatsUI(freq) {
+            const midi = Math.round(12 * Math.log2(freq / 440) + 69);
+            document.getElementById('ui-note').innerText = NOTES_BASE[midi % 12] + Math.floor(midi / 12 - 1);
+            const midis = Array.from(engine.currentMidiNotes).sort((a, b) => a - b);
+            if (midis.length >= 2) {
+                const uniqueNotes = Array.from(new Set(midis.map(m => m % 12))).sort((a, b) => a - b);
+                let chordName = "--";
+                for (let rootCandidate of uniqueNotes) {
+                    const relativePattern = uniqueNotes.map(n => (n - rootCandidate + 12) % 12).sort((a, b) => a - b);
+                    for (let [name, pattern] of Object.entries(CHORD_PATTERNS)) {
+                        if (JSON.stringify(relativePattern) === JSON.stringify(pattern)) {
+                            chordName = NOTES_BASE[rootCandidate] + " " + name; break;
+                        }
+                    }
+                }
+                document.getElementById('ui-chord').innerText = chordName;
+            } else { document.getElementById('ui-chord').innerText = "--"; }
+        }
+
+        document.getElementById('start-btn').addEventListener('click', () => {
+            document.getElementById('splash').classList.add('hidden');
+            init();
+        });
+    </script>
+</body>
+</html>
